@@ -1,0 +1,200 @@
+name: eol-images
+
+# Builds kolla container images for end-of-life OpenStack releases that are no
+# longer published to quay.io/openstack.kolla and pushes them to GHCR.
+#
+# Usage: Actions -> "eol-images" -> Run workflow.
+# The image groups (and therefore the exact image list) for each release live in
+# .github/kolla/groups.json, so adding a new release only means adding an entry
+# there (plus the matching --base/--image_tag inputs).
+#
+# Phase 0 groups build the parent images (base, openstack-base) and push them
+# first; phase 1 groups pull those back and build on top of them in parallel,
+# which keeps every job inside the free runner's disk budget.
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: OpenStack release (kolla-build --openstack-release)
+        type: string
+        required: true
+        default: zed
+      kolla_ref:
+        description: kolla git ref to build images from
+        type: string
+        required: true
+        default: zed-eol
+      base_distro:
+        description: kolla-build --base
+        type: string
+        required: true
+        default: rocky
+      base_distro_version:
+        description: kolla-build --base-tag
+        type: string
+        required: true
+        default: "9"
+      image_tag:
+        description: Docker tag for the built images (must match kolla-ansible openstack_tag)
+        type: string
+        required: true
+        default: zed-rocky-9
+      groups:
+        description: 'Groups to build: "all", or a comma separated subset of the keys in .github/kolla/groups.json'
+        type: string
+        required: true
+        default: all
+      push_images:
+        description: Push the built images to the registry
+        type: boolean
+        required: true
+        default: true
+      registry:
+        description: Registry host
+        type: string
+        required: true
+        default: ghcr.io
+      namespace:
+        description: Registry namespace (repository prefix)
+        type: string
+        required: true
+        default: preinpost/kolla
+
+concurrency:
+  group: eol-images-${{ inputs.image_tag }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  plan:
+    name: plan
+    runs-on: ubuntu-latest
+    outputs:
+      base_count: ${{ steps.plan.outputs.base_count }}
+      base_groups: ${{ steps.plan.outputs.base_groups }}
+      svc_count: ${{ steps.plan.outputs.svc_count }}
+      svc_groups: ${{ steps.plan.outputs.svc_groups }}
+    steps:
+      - name: Checkout workflow assets
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Plan build groups
+        id: plan
+        env:
+          RELEASE: ${{ inputs.release }}
+          REQUESTED_GROUPS: ${{ inputs.groups }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          release = os.environ["RELEASE"]
+          requested = [g.strip() for g in os.environ["REQUESTED_GROUPS"].split(",") if g.strip()]
+
+          with open(".github/kolla/groups.json", encoding="utf-8") as handle:
+              catalogue = json.load(handle)
+
+          if release not in catalogue:
+              sys.exit(
+                  f"release '{release}' is not defined in .github/kolla/groups.json "
+                  f"(known: {', '.join(sorted(catalogue))})"
+              )
+
+          groups = catalogue[release]
+          if requested and requested != ["all"]:
+              unknown = [g for g in requested if g not in groups]
+              if unknown:
+                  sys.exit(
+                      f"unknown group(s) {', '.join(unknown)} for release {release} "
+                      f"(known: {', '.join(groups)})"
+                  )
+              selected = [g for g in groups if g in requested]
+          else:
+              selected = list(groups)
+
+          # Parents that phase 1 groups need to find in the registry.
+          phase0 = [g for g in groups.values() if g.get("phase", 1) == 0]
+          parents = "base\nopenstack-base"
+
+          def matrix(names):
+              entries = []
+              for name in names:
+                  group = groups[name]
+                  entries.append(
+                      {
+                          "group": name,
+                          "regexes": "\n".join(group["regexes"]),
+                          "pull_images": parents if group.get("phase", 1) > 0 else "",
+                          "skip_existing": "true" if group.get("phase", 1) > 0 else "false",
+                          "description": group.get("description", ""),
+                      }
+                  )
+              return entries
+
+          base = matrix([n for n in selected if groups[n].get("phase", 1) == 0])
+          svc = matrix([n for n in selected if groups[n].get("phase", 1) > 0])
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write(f"base_count={len(base)}\n")
+              out.write(f"base_groups={json.dumps(base)}\n")
+              out.write(f"svc_count={len(svc)}\n")
+              out.write(f"svc_groups={json.dumps(svc)}\n")
+
+          print("phase 0:", [e["group"] for e in base])
+          print("phase 1:", [e["group"] for e in svc])
+          print(f"declared phase 0 groups in {release}: {len(phase0)}")
+          PY
+
+  build-base:
+    name: build ${{ matrix.group }}
+    needs: plan
+    if: ${{ needs.plan.outputs.base_count != '0' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.base_groups) }}
+    uses: ./.github/workflows/eol-images-build.yml
+    with:
+      release: ${{ inputs.release }}
+      kolla_ref: ${{ inputs.kolla_ref }}
+      base_distro: ${{ inputs.base_distro }}
+      base_distro_version: ${{ inputs.base_distro_version }}
+      image_tag: ${{ inputs.image_tag }}
+      registry: ${{ inputs.registry }}
+      namespace: ${{ inputs.namespace }}
+      group: ${{ matrix.group }}
+      regexes: ${{ matrix.regexes }}
+      push: ${{ inputs.push_images }}
+      skip_existing: ${{ matrix.skip_existing == 'true' }}
+      pull_images: ${{ matrix.pull_images }}
+
+  build-services:
+    name: build ${{ matrix.group }}
+    needs: [plan, build-base]
+    if: ${{ always() && needs.plan.outputs.svc_count != '0' && (needs.build-base.result == 'success' || needs.build-base.result == 'skipped') }}
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.svc_groups) }}
+    uses: ./.github/workflows/eol-images-build.yml
+    with:
+      release: ${{ inputs.release }}
+      kolla_ref: ${{ inputs.kolla_ref }}
+      base_distro: ${{ inputs.base_distro }}
+      base_distro_version: ${{ inputs.base_distro_version }}
+      image_tag: ${{ inputs.image_tag }}
+      registry: ${{ inputs.registry }}
+      namespace: ${{ inputs.namespace }}
+      group: ${{ matrix.group }}
+      regexes: ${{ matrix.regexes }}
+      push: ${{ inputs.push_images }}
+      skip_existing: ${{ matrix.skip_existing == 'true' }}
+      pull_images: ${{ matrix.pull_images }}

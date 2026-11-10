@@ -2,6 +2,15 @@
 Kolla Overview
 ==============
 
+.. note::
+
+   This is the ``preinpost/kolla`` utility fork. It adds a GitHub Actions
+   workflow that rebuilds container images for end-of-life OpenStack releases
+   and pushes them to GHCR, because upstream stops publishing them. See
+   `README-EOL-IMAGES.md <README-EOL-IMAGES.md>`__ for usage, and
+   ``.github/workflows/eol-images.yml`` for the implementation. Nothing else
+   below this note differs from upstream kolla.
+
 .. image:: https://governance.openstack.org/tc/badges/kolla.svg
     :target: https://governance.openstack.org/tc/reference/tags/index.html
 

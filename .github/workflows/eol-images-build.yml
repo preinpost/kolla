@@ -1,0 +1,208 @@
+name: eol-images-build
+
+# Reusable single-group builder for .github/workflows/eol-images.yml.
+# Builds one dependency group of kolla images from one kolla git ref and pushes
+# them to a container registry. Called once per group (matrix) by the
+# dispatcher workflow.
+
+on:
+  workflow_call:
+    inputs:
+      release:
+        description: OpenStack release passed to kolla-build --openstack-release
+        type: string
+        required: true
+      kolla_ref:
+        description: kolla git ref (tag/branch/SHA) to build images from
+        type: string
+        required: true
+      base_distro:
+        description: kolla-build --base
+        type: string
+        required: true
+      base_distro_version:
+        description: kolla-build --base-tag
+        type: string
+        required: true
+      image_tag:
+        description: Docker tag used for built images
+        type: string
+        required: true
+      registry:
+        description: Registry host to push to (e.g. ghcr.io)
+        type: string
+        required: true
+      namespace:
+        description: Registry namespace (e.g. preinpost/kolla)
+        type: string
+        required: true
+      group:
+        description: Name of this build group (label only)
+        type: string
+        required: true
+      regexes:
+        description: Newline separated kolla-build image regexes
+        type: string
+        required: true
+      push:
+        description: Push built images to the registry
+        type: boolean
+        required: true
+      skip_existing:
+        description: Pass --skip-existing so images already present locally (parents pulled from the registry) are not rebuilt
+        type: boolean
+        default: false
+      pull_images:
+        description: Newline separated parent image names to pre-pull from the registry
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    name: build ${{ inputs.group }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - name: Checkout workflow assets
+        uses: actions/checkout@v4
+        with:
+          path: cicd
+          fetch-depth: 1
+
+      - name: Free up disk space
+        run: |
+          set -eu
+          echo "== before =="
+          df -h / /mnt 2>/dev/null || df -h /
+          sudo rm -rf \
+            /usr/share/dotnet \
+            /usr/share/swift \
+            /usr/local/lib/android \
+            /usr/local/share/boost \
+            /usr/local/share/powershell \
+            /usr/local/lib/node_modules \
+            /usr/local/.ghcup \
+            /opt/az \
+            /opt/ghc \
+            /opt/hostedtoolcache/CodeQL \
+            /var/lib/docker/aufs || true
+          sudo apt-get clean || true
+          docker system prune --all --force --volumes || true
+          echo "== after =="
+          df -h / /mnt 2>/dev/null || df -h /
+
+      - name: Checkout kolla source
+        uses: actions/checkout@v4
+        with:
+          repository: preinpost/kolla
+          ref: ${{ inputs.kolla_ref }}
+          path: kolla-src
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install kolla-build
+        run: |
+          set -eu
+          python -m pip install --upgrade pip
+          python -m pip install ./kolla-src
+          python -c "import kolla.version as v; print('kolla version:', v.version_info.version_string())"
+
+      - name: Log in to ${{ inputs.registry }}
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pre-pull parent images
+        if: inputs.pull_images != ''
+        env:
+          PULL_IMAGES: ${{ inputs.pull_images }}
+        run: |
+          set -eu
+          while IFS= read -r image; do
+            [ -n "${image}" ] || continue
+            ref="${{ inputs.registry }}/${{ inputs.namespace }}/${image}:${{ inputs.image_tag }}"
+            echo "::group::docker pull ${ref}"
+            docker pull "${ref}"
+            echo "::endgroup::"
+          done <<< "${PULL_IMAGES}"
+
+      - name: Build images
+        env:
+          REGEXES: ${{ inputs.regexes }}
+          KOLLA_LOGS_DIR: ${{ github.workspace }}/kolla-logs
+          KOLLA_WORK_DIR: ${{ github.workspace }}/kolla-work
+        run: |
+          set -eu
+          mkdir -p "${KOLLA_LOGS_DIR}" "${KOLLA_WORK_DIR}"
+
+          args=(
+            --base "${{ inputs.base_distro }}"
+            --base-tag "${{ inputs.base_distro_version }}"
+            --openstack-release "${{ inputs.release }}"
+            --registry "${{ inputs.registry }}"
+            --namespace "${{ inputs.namespace }}"
+            --tag "${{ inputs.image_tag }}"
+            --threads 3
+            --push-threads 1
+            --retries 2
+            --template-override "${GITHUB_WORKSPACE}/cicd/.github/kolla/oci-labels.j2"
+            --logs-dir "${KOLLA_LOGS_DIR}"
+            --work-dir "${KOLLA_WORK_DIR}"
+          )
+
+          if [ "${{ inputs.push }}" = "true" ]; then
+            args+=(--push)
+          fi
+          if [ "${{ inputs.skip_existing }}" = "true" ]; then
+            args+=(--skip-existing)
+          fi
+
+          mapfile -t image_regexes <<< "${REGEXES}"
+          printf 'Building with regexes:\n  %s\n' "${image_regexes[@]}"
+
+          kolla-build "${args[@]}" "${image_regexes[@]}"
+
+      - name: Show built images
+        if: always()
+        run: |
+          docker image ls --format '{{.Repository}}:{{.Tag}} {{.Size}}' \
+            | grep -E "^${{ inputs.registry }}/" | sort || true
+
+      - name: Write summary
+        if: always()
+        run: |
+          {
+            echo "### Group \`${{ inputs.group }}\`"
+            echo
+            echo "- kolla ref: \`${{ inputs.kolla_ref }}\`"
+            echo "- release: \`${{ inputs.release }}\`"
+            echo "- base: \`${{ inputs.base_distro }}-${{ inputs.base_distro_version }}\`"
+            echo "- tag: \`${{ inputs.image_tag }}\`"
+            echo
+            echo '```'
+            docker image ls --format '{{.Repository}}:{{.Tag}} {{.Size}}' \
+              | grep -E "^${{ inputs.registry }}/" | sort || echo "(no images)"
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload build logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-${{ inputs.group }}
+          path: |
+            kolla-logs/
+            kolla-work/docker/
+          if-no-files-found: ignore
+          retention-days: 7
