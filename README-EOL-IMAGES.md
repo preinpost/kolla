@@ -119,6 +119,43 @@ package is public, anonymous pulls work:
 crane manifest ghcr.io/preinpost/kolla/keystone:zed-rocky-9
 ```
 
+## Published image set
+
+The zed / rocky 9 set was built from `kolla_ref=zed-eol`, `image_tag=zed-rocky-9`
+([run 42768163458](https://github.com/preinpost/kolla/actions/runs/42768163458),
+about 18 minutes wall clock, 38 images, ~42 GB on disk in total):
+
+| | |
+| --- | --- |
+| parents | `base` 655MB, `openstack-base` 1.22GB |
+| infra | `kolla-toolbox` 1.16GB, `cron` 668MB, `fluentd` 909MB, `haproxy` 684MB, `keepalived` 705MB, `memcached` 697MB, `rabbitmq` 733MB |
+| database | `mariadb-base` 779MB, `mariadb-server` 1.08GB, `mariadb-clustercheck` 779MB |
+| network | `openvswitch-base` / `-db-server` / `-vswitchd` 754MB each |
+| identity | `keystone-base` 1.29GB, `keystone` / `-fernet` / `-ssh` 1.31GB each |
+| image | `glance-base` 1.37GB, `glance-api` 1.4GB |
+| placement | `placement-base` / `-api` 1.23GB |
+| dashboard | `horizon` 1.45GB |
+| compute | `nova-base` / `-api` / `-conductor` / `-scheduler` 1.52GB, `nova-novncproxy` / `-ssh` 1.54GB, `nova-libvirt` 1.51GB, `nova-compute` 2.12GB |
+| networking | `neutron-base` / `-server` / `-openvswitch-agent` / `-dhcp-agent` / `-metadata-agent` 1.46GB, `neutron-l3-agent` 1.49GB |
+
+That covers a core deployment with keystone, glance, placement, nova,
+neutron+openvswitch and horizon. Images for services the deployment does not
+enable (cinder, heat, ceilometer, barbican, octavia, ironic, swift, ...) are not
+built; add them to a group in `groups.json` when needed. `proxysql` is skipped
+because kolla-ansible 15.6.0 defaults to `enable_proxysql: no` (haproxy + the
+mariadb images are used instead).
+
+Verify from a clean shell (no credentials needed once the packages are public):
+
+```bash
+# any of the 38 images
+curl -s "https://ghcr.io/token?scope=repository:preinpost/kolla/keystone:pull&service=ghcr.io" \
+  | python3 -c 'import sys,json;print(json.load(sys.stdin)["token"])' > /tmp/t
+curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $(cat /tmp/t)" \
+  -H 'Accept: application/vnd.docker.distribution.manifest.v2+json' \
+  https://ghcr.io/v2/preinpost/kolla/keystone/manifests/zed-rocky-9
+```
+
 ## Release notes / gotchas
 
 **Zed (2022.2), rocky 9** — the base image installs
