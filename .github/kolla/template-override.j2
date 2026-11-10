@@ -1,0 +1,48 @@
+{#
+  Global kolla-build template override for the EOL image builds.
+
+  It is passed to every build as:
+
+      --template-override .github/kolla/template-override.j2
+
+  Blocks that a given image does not define are simply ignored by Jinja, so a
+  single file can carry overrides for several templates.
+#}
+{% extends parent_template %}
+
+{#
+  1. OCI metadata on every image.
+
+  GHCR uses org.opencontainers.image.source to link a package back to the
+  repository it was built from. This replaces the stock labels block that every
+  kolla Dockerfile.j2 defines.
+#}
+{% block labels %}
+LABEL maintainer="{{ maintainer }}" \
+      name="{{ image_name }}" \
+      build-date="{{ build_date }}" \
+      org.opencontainers.image.source="https://github.com/preinpost/kolla" \
+      org.opencontainers.image.title="kolla/{{ image_name }}" \
+      org.opencontainers.image.version="{{ tag }}" \
+      org.opencontainers.image.revision="{{ kolla_version }}" \
+      org.opencontainers.image.licenses="Apache-2.0"
+{% endblock %}
+
+{#
+  2. Pin pip inside the OpenStack virtualenv (openstack-base only).
+
+  pip >= 25.1 builds sdists that only ship a setup.py in a PEP 517 isolated
+  environment. That environment resolves to today's setuptools, which no longer
+  provides pkg_resources, and every XStatic-* package (needed by horizon) starts
+  failing with:
+
+      ModuleNotFoundError: No module named 'pkg_resources'
+
+  pip 24.0 still uses the legacy setup.py path, which builds those sdists with
+  the setuptools==67.2.* that openstack-base already pins, so the images build
+  the same way they did when the release was current. Downgrading pip after the
+  upstream install keeps the rest of the template untouched.
+#}
+{% block openstack_base_footer %}
+RUN python3 -m pip --no-cache-dir install 'pip==24.0'
+{% endblock %}

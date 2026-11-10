@@ -156,7 +156,7 @@ jobs:
             --threads 3
             --push-threads 1
             --retries 2
-            --template-override "${GITHUB_WORKSPACE}/cicd/.github/kolla/oci-labels.j2"
+            --template-override "${GITHUB_WORKSPACE}/cicd/.github/kolla/template-override.j2"
             --logs-dir "${KOLLA_LOGS_DIR}"
             --work-dir "${KOLLA_WORK_DIR}"
           )

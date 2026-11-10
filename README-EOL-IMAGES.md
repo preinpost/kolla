@@ -115,10 +115,24 @@ from `https://tarballs.opendev.org/openstack/<project>/<project>-stable-zed.tar.
 and the pins come from `requirements-stable-zed.tar.gz`, both of which are still
 available, so builds are reproducible.
 
-No template overrides beyond `.github/kolla/oci-labels.j2` were needed for zed;
-that file only replaces the `labels` block so every image carries
-`org.opencontainers.image.source=https://github.com/preinpost/kolla`, which is
-what links the GHCR packages back to this repository.
+No template overrides beyond `.github/kolla/template-override.j2` were needed
+for zed; that file carries two blocks:
+
+* `labels` — adds `org.opencontainers.image.*` to every image so that GHCR
+  links each package back to this repository.
+* `openstack_base_footer` — pins `pip==24.0` inside the OpenStack virtualenv.
+  pip >= 25.1 builds sdists that only ship a `setup.py` (every `XStatic-*`
+  package, which horizon needs) in a PEP 517 isolated environment, where
+  present-day setuptools no longer provides `pkg_resources`, so horizon fails
+  with `ModuleNotFoundError: No module named 'pkg_resources'`. pip 24.0 keeps
+  using the legacy `setup.py` path together with the `setuptools==67.2.*` that
+  openstack-base already pins, which is how the release was built originally.
+
+Everything else (repositories, constraints, source tarballs) still works
+unmodified, because Rocky's `extras` keeps publishing
+`centos-release-openstack-zed`, `mirror.stream.centos.org` still serves the
+`CentOS-OpenStack-zed` repository, and `tarballs.opendev.org` still serves the
+`stable-zed` tarballs that carry the release's `upper-constraints.txt`.
 
 ## Extending to another release
 
