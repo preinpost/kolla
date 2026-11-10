@@ -118,7 +118,18 @@ jobs:
           set -eu
           python -m pip install --upgrade pip
           python -m pip install ./kolla-src
+          # kolla 2024.1 moved the docker SDK from requirements.txt to
+          # test-requirements.txt, so a plain install leaves kolla-build unable
+          # to talk to the daemon:
+          #   Error, you have set Docker as container engine, but the Python
+          #   library is not found.Try running 'pip install docker'
+          # Install the version range the release was built with (zed declared
+          # docker<7.0.0) and leave every older ref untouched.
+          if ! python -c 'import docker' >/dev/null 2>&1; then
+            python -m pip install 'docker>=3.0.0,<7.0.0'
+          fi
           python -c "import kolla.version as v; print('kolla version:', v.version_info.version_string())"
+          python -c "import docker; print('docker sdk:', docker.__version__)"
 
       - name: Log in to ${{ inputs.registry }}
         uses: docker/login-action@v3
