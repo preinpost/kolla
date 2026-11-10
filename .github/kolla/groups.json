@@ -68,5 +68,147 @@
         "^neutron-metadata-agent$"
       ]
     }
+  },
+  "2024.1": {
+    "base": {
+      "phase": 0,
+      "description": "Parent images everything else is built on top of (must be pushed first).",
+      "regexes": [
+        "^base$",
+        "^openstack-base$"
+      ]
+    },
+    "infra": {
+      "phase": 1,
+      "description": "Common infrastructure services used by every kolla-ansible deployment.",
+      "regexes": [
+        "^kolla-toolbox$",
+        "^cron$",
+        "^fluentd$",
+        "^haproxy$",
+        "^keepalived$",
+        "^memcached$",
+        "^rabbitmq$",
+        "^mariadb-base$",
+        "^mariadb-server$",
+        "^mariadb-clustercheck$",
+        "^proxysql$",
+        "^openvswitch-base$",
+        "^openvswitch-db-server$",
+        "^openvswitch-vswitchd$"
+      ]
+    },
+    "keystone-glance-placement-horizon": {
+      "phase": 1,
+      "description": "Identity, image, placement and dashboard APIs.",
+      "regexes": [
+        "^keystone-base$",
+        "^keystone$",
+        "^keystone-fernet$",
+        "^keystone-ssh$",
+        "^glance-base$",
+        "^glance-api$",
+        "^placement-base$",
+        "^placement-api$",
+        "^horizon$"
+      ]
+    },
+    "nova": {
+      "phase": 1,
+      "description": "Compute control plane, conductor, scheduler, compute and libvirt.",
+      "regexes": [
+        "^nova-base$",
+        "^nova-api$",
+        "^nova-conductor$",
+        "^nova-scheduler$",
+        "^nova-novncproxy$",
+        "^nova-compute$",
+        "^nova-libvirt$",
+        "^nova-ssh$"
+      ]
+    },
+    "neutron": {
+      "phase": 1,
+      "description": "Networking server and the OVS/L3/DHCP/metadata agents.",
+      "regexes": [
+        "^neutron-base$",
+        "^neutron-server$",
+        "^neutron-openvswitch-agent$",
+        "^neutron-l3-agent$",
+        "^neutron-dhcp-agent$",
+        "^neutron-metadata-agent$"
+      ]
+    }
+  },
+  "2024.2": {
+    "base": {
+      "phase": 0,
+      "description": "Parent images everything else is built on top of (must be pushed first).",
+      "regexes": [
+        "^base$",
+        "^openstack-base$"
+      ]
+    },
+    "infra": {
+      "phase": 1,
+      "description": "Common infrastructure services used by every kolla-ansible deployment.",
+      "regexes": [
+        "^kolla-toolbox$",
+        "^cron$",
+        "^fluentd$",
+        "^haproxy$",
+        "^keepalived$",
+        "^memcached$",
+        "^rabbitmq$",
+        "^mariadb-base$",
+        "^mariadb-server$",
+        "^mariadb-clustercheck$",
+        "^proxysql$",
+        "^openvswitch-base$",
+        "^openvswitch-db-server$",
+        "^openvswitch-vswitchd$"
+      ]
+    },
+    "keystone-glance-placement-horizon": {
+      "phase": 1,
+      "description": "Identity, image, placement and dashboard APIs.",
+      "regexes": [
+        "^keystone-base$",
+        "^keystone$",
+        "^keystone-fernet$",
+        "^keystone-ssh$",
+        "^glance-base$",
+        "^glance-api$",
+        "^placement-base$",
+        "^placement-api$",
+        "^horizon$"
+      ]
+    },
+    "nova": {
+      "phase": 1,
+      "description": "Compute control plane, conductor, scheduler, compute and libvirt.",
+      "regexes": [
+        "^nova-base$",
+        "^nova-api$",
+        "^nova-conductor$",
+        "^nova-scheduler$",
+        "^nova-novncproxy$",
+        "^nova-compute$",
+        "^nova-libvirt$",
+        "^nova-ssh$"
+      ]
+    },
+    "neutron": {
+      "phase": 1,
+      "description": "Networking server and the OVS/L3/DHCP/metadata agents.",
+      "regexes": [
+        "^neutron-base$",
+        "^neutron-server$",
+        "^neutron-openvswitch-agent$",
+        "^neutron-l3-agent$",
+        "^neutron-dhcp-agent$",
+        "^neutron-metadata-agent$"
+      ]
+    }
   }
 }
