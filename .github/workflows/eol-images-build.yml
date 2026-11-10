@@ -56,6 +56,10 @@ on:
         description: Newline separated parent image names to pre-pull from the registry
         type: string
         default: ""
+      public_packages:
+        description: Try to flip the pushed GHCR packages to public visibility
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -172,6 +176,31 @@ jobs:
           printf 'Building with regexes:\n  %s\n' "${image_regexes[@]}"
 
           kolla-build "${args[@]}" "${image_regexes[@]}"
+
+      - name: Make GHCR packages public
+        if: ${{ inputs.push && inputs.public_packages && inputs.registry == 'ghcr.io' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -u
+          owner="${GITHUB_REPOSITORY%%/*}"
+          prefix="${{ inputs.registry }}/${owner}/"
+          mapfile -t repos < <(docker image ls --format '{{.Repository}}' \
+            | grep -F "${prefix}" | sort -u)
+          failures=0
+          for repo in "${repos[@]}"; do
+            name="${repo#"${prefix}"}"
+            encoded="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "${name}")"
+            if gh api -X PATCH "/user/packages/container/${encoded}" \
+                 --silent -f visibility=public; then
+              echo "public: ${name}"
+            else
+              echo "::warning::could not make ${name} public (the token may lack package permissions); see README-EOL-IMAGES.md"
+              failures=$((failures + 1))
+            fi
+          done
+          echo "packages updated: $(( ${#repos[@]} - failures ))/${#repos[@]}" >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Show built images
         if: always()

@@ -58,7 +58,8 @@ Inputs:
 | `base_distro` / `base_distro_version` | kolla-build `--base` / `--base-tag` |
 | `image_tag` | tag applied to every image; must match what kolla-ansible computes as `openstack_tag` |
 | `registry` / `namespace` | push destination, e.g. `ghcr.io` + `preinpost/kolla` |
-| `push_images` | leave empty (`false`) to build without pushing, useful for debugging |
+| `push_images` | set to `false` to build without pushing, useful for debugging |
+| `public_packages` | try to flip the pushed GHCR packages to public after pushing |
 
 Each job logs in with the workflow's `GITHUB_TOKEN`
 (`permissions: packages: write`), so no extra secret is needed for pushing.
@@ -90,15 +91,29 @@ ansible -i /etc/kolla/all-in-one -m debug -a "var=openstack_tag" all
 ## Registry visibility
 
 New GHCR packages are **private by default**. Either authenticate the nodes
-(`docker login ghcr.io`) on the cluster, or make the packages public. Making a
-user-owned package public has to be done in the UI the first time:
+(`docker login ghcr.io`) on the cluster, or make the packages public.
+
+The build workflow tries to do that automatically (`public_packages`, using
+`PATCH /user/packages/container/<name>` with the workflow's `GITHUB_TOKEN`). If
+GitHub rejects that token for package administration, the step logs a warning
+and the build still succeeds. In that case do it by hand — a user-owned package
+needs `write:packages` on a personal token, or the UI:
 
 `https://github.com/users/preinpost/packages/container/<image-name>/settings`
 → **Danger Zone** → **Change visibility** → **Public**.
 
-After the first package of a namespace is public, the rest still need the same
-treatment (there is a per-package setting only). Once a package is public,
-anonymous pulls work:
+`gh auth refresh -s write:packages` adds the scope, after which the whole
+namespace can be flipped from a shell:
+
+```bash
+for pkg in $(gh api '/user/packages?package_type=container&per_page=100' --jq '.[].name'); do
+  gh api -X PATCH "/user/packages/container/$(python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1],safe=""))' "$pkg")" \
+    -f visibility=public
+done
+```
+
+Note that GHCR visibility is per package, so every image needs it. Once a
+package is public, anonymous pulls work:
 
 ```bash
 crane manifest ghcr.io/preinpost/kolla/keystone:zed-rocky-9

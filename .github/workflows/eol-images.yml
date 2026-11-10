@@ -60,6 +60,11 @@ on:
         type: string
         required: true
         default: preinpost/kolla
+      public_packages:
+        description: Try to flip the pushed GHCR packages to public visibility
+        type: boolean
+        required: true
+        default: true
 
 concurrency:
   group: eol-images-${{ inputs.image_tag }}
@@ -174,6 +179,7 @@ jobs:
       push: ${{ inputs.push_images }}
       skip_existing: ${{ matrix.skip_existing == 'true' }}
       pull_images: ${{ matrix.pull_images }}
+      public_packages: ${{ inputs.public_packages }}
 
   build-services:
     name: build ${{ matrix.group }}
@@ -198,3 +204,4 @@ jobs:
       push: ${{ inputs.push_images }}
       skip_existing: ${{ matrix.skip_existing == 'true' }}
       pull_images: ${{ matrix.pull_images }}
+      public_packages: ${{ inputs.public_packages }}
